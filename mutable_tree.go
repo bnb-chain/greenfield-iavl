@@ -770,6 +770,7 @@ func (tree *MutableTree) enableFastStorageAndCommit() error {
 // GetImmutable loads an ImmutableTree at a given version for querying. The returned tree is
 // safe for concurrent access, provided the version is not deleted, e.g. via `DeleteVersion()`.
 func (tree *MutableTree) GetImmutable(version int64) (*ImmutableTree, error) {
+	// TODO: roothash is nil
 	rootHash, err := tree.ndb.getRoot(version)
 	if err != nil {
 		return nil, err
@@ -857,7 +858,7 @@ func (tree *MutableTree) GetVersioned(key []byte, version int64) ([]byte, error)
 
 // SaveVersion saves a new tree version to disk, based on the current state of
 // the tree. Returns the hash and new version number.
-func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
+func (tree *MutableTree) SaveVersion(flush bool) ([]byte, int64, error) {
 	version := tree.version + 1
 	if version == 1 && tree.ndb.opts.InitialVersion > 0 {
 		version = int64(tree.ndb.opts.InitialVersion)
@@ -922,8 +923,10 @@ func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
 		}
 	}
 
-	if err := tree.ndb.Commit(); err != nil {
-		return nil, version, err
+	if flush {
+		if err := tree.ndb.Commit(); err != nil {
+			return nil, version, err
+		}
 	}
 
 	tree.mtx.Lock()

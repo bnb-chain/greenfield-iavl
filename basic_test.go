@@ -284,7 +284,7 @@ func TestRemove(t *testing.T) {
 			key := keys[mrand.Int31n(l)]
 			t1.Remove(key)
 		}
-		t1.SaveVersion()
+		t1.SaveVersion(true)
 	}
 }
 
@@ -475,7 +475,7 @@ func TestPersistence(t *testing.T) {
 	for key, value := range records {
 		t1.Set([]byte(key), []byte(value))
 	}
-	t1.SaveVersion()
+	t1.SaveVersion(true)
 
 	// Load a tree
 	t2, err := NewMutableTree(db, 0, false)
@@ -500,7 +500,7 @@ func TestProof(t *testing.T) {
 	}
 
 	// Persist the items so far
-	tree.SaveVersion()
+	tree.SaveVersion(true)
 
 	// Add more items so it's not all persisted
 	for i := 0; i < 10; i++ {
@@ -546,7 +546,7 @@ func TestTreeProof(t *testing.T) {
 		keys[i] = []byte(key)
 	}
 
-	tree.SaveVersion()
+	tree.SaveVersion(true)
 
 	// query random key fails
 	_, err = tree.GetMembershipProof([]byte("foo"))

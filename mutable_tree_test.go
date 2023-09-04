@@ -117,9 +117,9 @@ func TestDelete(t *testing.T) {
 
 	_, _, err := tree.set([]byte("k1"), []byte("Fred"))
 	require.NoError(t, err)
-	hash, version, err := tree.SaveVersion()
+	hash, version, err := tree.SaveVersion(true)
 	require.NoError(t, err)
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	require.NoError(t, tree.DeleteVersion(version))
@@ -165,7 +165,7 @@ func TestGetRemove(t *testing.T) {
 	testGet(true)
 
 	// Save to tree.ImmutableTree
-	_, version, err := tree.SaveVersion()
+	_, version, err := tree.SaveVersion(true)
 	require.NoError(err)
 	require.Equal(int64(1), version)
 
@@ -213,7 +213,7 @@ func TestMutableTree_DeleteVersions(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		_, v, err := tree.SaveVersion()
+		_, v, err := tree.SaveVersion(true)
 		require.NoError(t, err)
 
 		versionEntries[v] = entries
@@ -296,7 +296,7 @@ func TestMutableTree_DeleteVersionsRange(t *testing.T) {
 		require.NoError(err, "Set should not fail")
 		_, err = tree.Set([]byte("key"+countStr), []byte("value"+countStr))
 		require.NoError(err, "Set should not fail")
-		_, _, err = tree.SaveVersion()
+		_, _, err = tree.SaveVersion(true)
 		require.NoError(err, "SaveVersion should not fail")
 	}
 
@@ -368,13 +368,13 @@ func TestMutableTree_InitialVersion(t *testing.T) {
 
 	_, err = tree.Set([]byte("a"), []byte{0x01})
 	require.NoError(t, err)
-	_, version, err := tree.SaveVersion()
+	_, version, err := tree.SaveVersion(true)
 	require.NoError(t, err)
 	assert.EqualValues(t, 9, version)
 
 	_, err = tree.Set([]byte("b"), []byte{0x02})
 	require.NoError(t, err)
-	_, version, err = tree.SaveVersion()
+	_, version, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 	assert.EqualValues(t, 10, version)
 
@@ -412,7 +412,7 @@ func TestMutableTree_InitialVersion(t *testing.T) {
 
 	_, err = tree.Set([]byte("c"), []byte{0x03})
 	require.NoError(t, err)
-	_, version, err = tree.SaveVersion()
+	_, version, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 	assert.EqualValues(t, 11, version)
 }
@@ -423,7 +423,7 @@ func TestMutableTree_SetInitialVersion(t *testing.T) {
 
 	_, err := tree.Set([]byte("a"), []byte{0x01})
 	require.NoError(t, err)
-	_, version, err := tree.SaveVersion()
+	_, version, err := tree.SaveVersion(true)
 	require.NoError(t, err)
 	assert.EqualValues(t, 9, version)
 }
@@ -456,14 +456,14 @@ func prepareTree(t *testing.T) *MutableTree {
 		_, err = tree.Set([]byte{byte(i)}, []byte("a"))
 		require.NoError(t, err)
 	}
-	_, ver, err := tree.SaveVersion()
+	_, ver, err := tree.SaveVersion(true)
 	require.True(t, ver == 1)
 	require.NoError(t, err)
 	for i := 0; i < 100; i++ {
 		_, err = tree.Set([]byte{byte(i)}, []byte("b"))
 		require.NoError(t, err)
 	}
-	_, ver, err = tree.SaveVersion()
+	_, ver, err = tree.SaveVersion(true)
 	require.True(t, ver == 2)
 	require.NoError(t, err)
 	newTree, err := NewMutableTree(mdb, 1000, false)
@@ -524,7 +524,7 @@ func TestMutableTree_LazyLoadVersionWithEmptyTree(t *testing.T) {
 	mdb := db.NewMemDB()
 	tree, err := NewMutableTree(mdb, 1000, false)
 	require.NoError(t, err)
-	_, v1, err := tree.SaveVersion()
+	_, v1, err := tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	newTree1, err := NewMutableTree(mdb, 1000, false)
@@ -771,7 +771,7 @@ func TestMutableTree_FastNodeIntegration(t *testing.T) {
 	require.Equal(t, len(unsavedNodeRemovals), 1)
 
 	// Save
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	unsavedNodeAdditions = tree.getUnsavedFastNodeAdditions()
@@ -818,7 +818,7 @@ func TestIterate_MutableTree_Unsaved(t *testing.T) {
 func TestIterate_MutableTree_Saved(t *testing.T) {
 	tree, mirror := getRandomizedTreeAndMirror(t)
 
-	_, _, err := tree.SaveVersion()
+	_, _, err := tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	assertMutableMirrorIterate(t, tree, mirror)
@@ -827,7 +827,7 @@ func TestIterate_MutableTree_Saved(t *testing.T) {
 func TestIterate_MutableTree_Unsaved_NextVersion(t *testing.T) {
 	tree, mirror := getRandomizedTreeAndMirror(t)
 
-	_, _, err := tree.SaveVersion()
+	_, _, err := tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	assertMutableMirrorIterate(t, tree, mirror)
@@ -1142,7 +1142,7 @@ func TestUpgradeStorageToFast_Integration_Upgraded_FastIterator_Success(t *testi
 	require.NoError(t, err)
 
 	// Should auto enable in save version
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	isFastCacheEnabled, err = tree.IsFastCacheEnabled()
@@ -1209,7 +1209,7 @@ func TestUpgradeStorageToFast_Integration_Upgraded_GetFast_Success(t *testing.T)
 	require.NoError(t, err)
 
 	// Should auto enable in save version
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	isFastCacheEnabled, err = tree.IsFastCacheEnabled()
@@ -1396,7 +1396,7 @@ func TestNoFastStorageUpgrade_Integration_SaveVersion_Load_Get_Success(t *testin
 	require.NoError(t, err)
 
 	// Should Not auto enable in save version
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	isFastCacheEnabled, err = tree.IsFastCacheEnabled()
@@ -1483,7 +1483,7 @@ func TestNoFastStorageUpgrade_Integration_SaveVersion_Load_Iterate_Success(t *te
 	require.NoError(t, err)
 
 	// Should Not auto enable in save version
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	isFastCacheEnabled, err = tree.IsFastCacheEnabled()
