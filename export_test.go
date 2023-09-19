@@ -27,7 +27,7 @@ func setupExportTreeBasic(t require.TestingT) *ImmutableTree {
 	require.NoError(t, err)
 	_, err = tree.Set([]byte("c"), []byte{3})
 	require.NoError(t, err)
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	_, _, err = tree.Remove([]byte("x"))
@@ -38,7 +38,7 @@ func setupExportTreeBasic(t require.TestingT) *ImmutableTree {
 	require.NoError(t, err)
 	_, err = tree.Set([]byte("d"), []byte{4})
 	require.NoError(t, err)
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	_, err = tree.Set([]byte("b"), []byte{2})
@@ -49,7 +49,7 @@ func setupExportTreeBasic(t require.TestingT) *ImmutableTree {
 	require.NoError(t, err)
 	_, _, err = tree.Remove([]byte("z"))
 	require.NoError(t, err)
-	_, version, err := tree.SaveVersion()
+	_, version, err := tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	itree, err := tree.GetImmutable(version)
@@ -110,7 +110,7 @@ func setupExportTreeRandom(t *testing.T) *ImmutableTree {
 				keys = append(keys, key)
 			}
 		}
-		_, version, err = tree.SaveVersion()
+		_, version, err = tree.SaveVersion(true)
 		require.NoError(t, err)
 	}
 
@@ -148,7 +148,7 @@ func setupExportTreeSized(t require.TestingT, treeSize int) *ImmutableTree { //n
 		}
 	}
 
-	_, version, err := tree.SaveVersion()
+	_, version, err := tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	itree, err := tree.GetImmutable(version)
@@ -277,17 +277,17 @@ func TestExporter_DeleteVersionErrors(t *testing.T) {
 
 	_, err = tree.Set([]byte("a"), []byte{1})
 	require.NoError(t, err)
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	_, err = tree.Set([]byte("b"), []byte{2})
 	require.NoError(t, err)
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	_, err = tree.Set([]byte("c"), []byte{3})
 	require.NoError(t, err)
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	itree, err := tree.GetImmutable(2)

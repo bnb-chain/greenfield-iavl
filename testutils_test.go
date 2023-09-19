@@ -330,11 +330,11 @@ func benchmarkImmutableAvlTreeWithDB(b *testing.B, db db.DB) {
 	for i := 0; i < 1000000; i++ {
 		t.Set(i2b(int(iavlrand.RandInt31())), value)
 		if i > 990000 && i%1000 == 999 {
-			t.SaveVersion()
+			t.SaveVersion(true)
 		}
 	}
 	b.ReportAllocs()
-	t.SaveVersion()
+	t.SaveVersion(true)
 
 	runtime.GC()
 
@@ -344,7 +344,7 @@ func benchmarkImmutableAvlTreeWithDB(b *testing.B, db db.DB) {
 		t.Set(ri, value)
 		t.Remove(ri)
 		if i%100 == 99 {
-			t.SaveVersion()
+			t.SaveVersion(true)
 		}
 	}
 }

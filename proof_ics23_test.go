@@ -76,7 +76,7 @@ func TestGetNonMembership(t *testing.T) {
 			tree, allkeys, err := BuildTree(tc.size, 0)
 			require.NoError(t, err, "Creating tree: %+v", err)
 			// Save version to enable fast cache
-			_, _, err = tree.SaveVersion()
+			_, _, err = tree.SaveVersion(true)
 			require.NoError(t, err)
 
 			isFastCacheEnabled, err := tree.IsFastCacheEnabled()
@@ -134,7 +134,7 @@ func BenchmarkGetNonMembership(b *testing.B) {
 			tree, allkeys, err := BuildTree(tc.size, 100000)
 			require.NoError(b, err, "Creating tree: %+v", err)
 			// Save version to enable fast cache
-			_, _, err = tree.SaveVersion()
+			_, _, err = tree.SaveVersion(true)
 			require.NoError(b, err)
 
 			isFastCacheEnabled, err := tree.IsFastCacheEnabled()

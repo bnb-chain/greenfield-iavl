@@ -45,7 +45,7 @@ func commitTree(b *testing.B, t *iavl.MutableTree) {
 	_, err := t.Hash()
 	require.NoError(b, err)
 
-	_, version, err := t.SaveVersion()
+	_, version, err := t.SaveVersion(true)
 	if err != nil {
 		b.Errorf("Can't save: %v", err)
 	}
@@ -87,7 +87,7 @@ func runQueriesSlow(b *testing.B, t *iavl.MutableTree, keyLen int) {
 	b.StopTimer()
 	// Save version to get an old immutable tree to query against,
 	// Fast storage is not enabled on old tree versions, allowing us to bench the desired behavior.
-	_, version, err := t.SaveVersion()
+	_, version, err := t.SaveVersion(true)
 	require.NoError(b, err)
 
 	itree, err := t.GetImmutable(version - 1)
@@ -108,7 +108,7 @@ func runKnownQueriesSlow(b *testing.B, t *iavl.MutableTree, keys [][]byte) {
 	b.StopTimer()
 	// Save version to get an old immutable tree to query against,
 	// Fast storage is not enabled on old tree versions, allowing us to bench the desired behavior.
-	_, version, err := t.SaveVersion()
+	_, version, err := t.SaveVersion(true)
 	require.NoError(b, err)
 
 	itree, err := t.GetImmutable(version - 1)
@@ -167,7 +167,7 @@ func iterate(b *testing.B, itr db.Iterator, expectedSize int) {
 // 		t.Set(randBytes(keyLen), randBytes(dataLen))
 // 		if i%blockSize == 0 {
 // 			t.Hash()
-// 			t.SaveVersion()
+// 			t.SaveVersion(true)
 // 		}
 // 	}
 // 	return t

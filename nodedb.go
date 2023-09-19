@@ -81,6 +81,8 @@ type nodeDB struct {
 	latestVersion  int64            // Latest version of nodeDB.
 	nodeCache      cache.Cache      // Cache for nodes in the regular tree that consists of key-value pairs at any version.
 	fastNodeCache  cache.Cache      // Cache for nodes in the fast index that represents only key-value pairs at the latest version.
+
+	commitCache *nodedbCache
 }
 
 func newNodeDB(db dbm.DB, cacheSize int, opts *Options) *nodeDB {
@@ -104,6 +106,7 @@ func newNodeDB(db dbm.DB, cacheSize int, opts *Options) *nodeDB {
 		fastNodeCache:  cache.New(fastNodeCacheSize),
 		versionReaders: make(map[int64]uint32, 8),
 		storageVersion: string(storeVersion),
+		commitCache:    newNdbCache(int64(opts.InitialVersion)),
 	}
 }
 
@@ -129,16 +132,24 @@ func (ndb *nodeDB) unsafeGetNode(hash []byte) (*Node, error) {
 
 	ndb.opts.Stat.IncCacheMissCnt()
 
+	var node *Node
+	var err error
+
+	// Check commit cache.
+	buf := ndb.commitCache.GetNode(ndb.nodeKey(hash))
+
 	// Doesn't exist, load.
-	buf, err := ndb.db.Get(ndb.nodeKey(hash))
-	if err != nil {
-		return nil, fmt.Errorf("can't get node %X: %v", hash, err)
-	}
 	if buf == nil {
-		return nil, fmt.Errorf("Value missing for hash %x corresponding to nodeKey %x", hash, ndb.nodeKey(hash))
+		buf, err = ndb.db.Get(ndb.nodeKey(hash))
+		if err != nil {
+			return nil, fmt.Errorf("can't get node %X: %v", hash, err)
+		}
+		if buf == nil {
+			return nil, fmt.Errorf("Value missing for hash %x corresponding to nodeKey %x", hash, ndb.nodeKey(hash))
+		}
 	}
 
-	node, err := MakeNode(buf)
+	node, err = MakeNode(buf)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Node. bytes: %x, error: %v", buf, err)
 	}
@@ -210,6 +221,10 @@ func (ndb *nodeDB) SaveNode(node *Node) error {
 	if err := ndb.batch.Set(ndb.nodeKey(node.hash), buf.Bytes()); err != nil {
 		return err
 	}
+
+	// Save to commit cache.
+	ndb.commitCache.SaveNode(ndb.nodeKey(node.hash), buf.Bytes())
+
 	logger.Debug("BATCH SAVE %X %p\n", node.hash, node)
 	node.persisted = true
 	ndb.nodeCache.Add(node)
@@ -318,6 +333,12 @@ func (ndb *nodeDB) saveFastNodeUnlocked(node *fastnode.Node, shouldAddToCache bo
 func (ndb *nodeDB) Has(hash []byte) (bool, error) {
 	key := ndb.nodeKey(hash)
 
+	// Check commit cache.
+	diffedNode := ndb.commitCache.GetNode(key)
+	if diffedNode != nil {
+		return true, nil
+	}
+
 	if ldb, ok := ndb.db.(*dbm.GoLevelDB); ok {
 		exists, err := ldb.DB().Has(key, nil)
 		if err != nil {
@@ -399,6 +420,9 @@ func (ndb *nodeDB) resetBatch() error {
 
 	ndb.batch = ndb.db.NewBatch()
 
+	ndb.commitCache.Destroy()
+	ndb.commitCache = newNdbCache(ndb.latestVersion)
+
 	return nil
 }
 
@@ -438,7 +462,7 @@ func (ndb *nodeDB) DeleteVersionsFrom(version int64) error {
 		return err
 	}
 	if root == nil {
-		return fmt.Errorf("root for version %v not found", latest)
+		return fmt.Errorf("dirtyRoots for version %v not found", latest)
 	}
 
 	ndb.mtx.Lock()
@@ -460,6 +484,24 @@ func (ndb *nodeDB) DeleteVersionsFrom(version int64) error {
 	// Next, delete orphans:
 	// - Delete orphan entries *and referred nodes* with fromVersion >= version
 	// - Delete orphan entries with toVersion >= version-1 (since orphans at latest are not orphans)
+
+	// Delete from commit cache.
+	diffedOrphans := ndb.commitCache.GetOrphans()
+	for key, hash := range diffedOrphans {
+		k := []byte(key)
+		if bytes.Compare(k, orphanKeyFormat.Key(version-1)) >= 0 {
+			var fromVersion, toVersion int64
+			orphanKeyFormat.Scan(k, &toVersion, &fromVersion)
+			if fromVersion >= version {
+				ndb.commitCache.DeleteOrphan(k)
+				ndb.commitCache.DeleteNode(ndb.nodeKey(hash))
+				ndb.nodeCache.Remove(hash)
+			} else if toVersion >= version-1 {
+				ndb.commitCache.DeleteOrphan(k)
+			}
+		}
+	}
+
 	err = ndb.traverseRange(orphanKeyFormat.Key(version-1), orphanKeyFormat.Key(maxVersion), func(key, hash []byte) error {
 		var fromVersion, toVersion int64
 		orphanKeyFormat.Scan(key, &toVersion, &fromVersion)
@@ -484,7 +526,10 @@ func (ndb *nodeDB) DeleteVersionsFrom(version int64) error {
 		return err
 	}
 
-	// Delete the version root entries
+	// Delete in commit cache.
+	ndb.commitCache.DeleteRootsFrom(version)
+
+	// Delete the version dirtyRoots entries
 	err = ndb.traverseRange(rootKeyFormat.Key(version), rootKeyFormat.Key(maxVersion), func(k, v []byte) error {
 		return ndb.batch.Delete(k)
 	})
@@ -531,7 +576,26 @@ func (ndb *nodeDB) DeleteVersionsRange(fromVersion, toVersion int64) error {
 
 	// If the predecessor is earlier than the beginning of the lifetime, we can delete the orphan.
 	// Otherwise, we shorten its lifetime, by moving its endpoint to the predecessor version.
+	diffedOrphans := ndb.commitCache.GetOrphans()
 	for version := fromVersion; version < toVersion; version++ {
+		// Delete from commit cache.
+		for key, hash := range diffedOrphans {
+			k := []byte(key)
+			if bytes.Compare(k, orphanKeyFormat.Key(version)) >= 0 {
+				var from, to int64
+				orphanKeyFormat.Scan(k, &to, &from)
+				ndb.commitCache.DeleteOrphan(k)
+				if from > predecessor {
+					ndb.commitCache.DeleteNode(ndb.nodeKey(hash))
+					ndb.nodeCache.Remove(hash)
+				} else {
+					if err := ndb.saveOrphan(hash, from, predecessor); err != nil {
+						return err
+					}
+				}
+			}
+		}
+
 		err := ndb.traverseOrphansVersion(version, func(key, hash []byte) error {
 			var from, to int64
 			orphanKeyFormat.Scan(key, &to, &from)
@@ -555,7 +619,10 @@ func (ndb *nodeDB) DeleteVersionsRange(fromVersion, toVersion int64) error {
 		}
 	}
 
-	// Delete the version root entries
+	// Delete in commit cache.
+	ndb.commitCache.DeleteRootsRange(fromVersion, toVersion)
+
+	// Delete the version dirtyRoots entries
 	err = ndb.traverseRange(rootKeyFormat.Key(fromVersion), rootKeyFormat.Key(toVersion), func(k, v []byte) error {
 		return ndb.batch.Delete(k)
 	})
@@ -609,6 +676,9 @@ func (ndb *nodeDB) deleteNodesFrom(version int64, hash []byte) error {
 			return err
 		}
 
+		// Delete in commit cache.
+		ndb.commitCache.DeleteNode(ndb.nodeKey(hash))
+
 		ndb.nodeCache.Remove(hash)
 	}
 
@@ -644,6 +714,9 @@ func (ndb *nodeDB) saveOrphan(hash []byte, fromVersion, toVersion int64) error {
 	}
 	key := ndb.orphanKey(fromVersion, toVersion, hash)
 
+	// Save in commit cache.
+	ndb.commitCache.SaveOrphan(key, hash)
+
 	return ndb.batch.Set(key, hash)
 }
 
@@ -654,6 +727,27 @@ func (ndb *nodeDB) deleteOrphans(version int64) error {
 	predecessor, err := ndb.getPreviousVersion(version)
 	if err != nil {
 		return err
+	}
+
+	// Delete from commit cache.
+	diffedOrphans := ndb.commitCache.GetOrphans()
+	for key, hash := range diffedOrphans {
+		k := []byte(key)
+		var fromVersion, toVersion int64
+		orphanKeyFormat.Scan(k, &toVersion, &fromVersion)
+
+		ndb.commitCache.DeleteOrphan(k)
+
+		if predecessor < fromVersion || fromVersion == toVersion {
+			ndb.commitCache.DeleteNode(ndb.nodeKey(hash))
+			ndb.nodeCache.Remove(k)
+		} else {
+			err := ndb.saveOrphan(hash, fromVersion, predecessor)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
 	// Traverse orphans with a lifetime ending at the version specified.
@@ -710,6 +804,12 @@ func (ndb *nodeDB) rootKey(version int64) []byte {
 
 func (ndb *nodeDB) getLatestVersion() (int64, error) {
 	if ndb.latestVersion == 0 {
+		// Get from commit cache.
+		version := ndb.commitCache.LastVersion()
+		if version != 0 {
+			return version, nil
+		}
+
 		var err error
 		ndb.latestVersion, err = ndb.getPreviousVersion(maxVersion)
 		if err != nil {
@@ -730,6 +830,11 @@ func (ndb *nodeDB) resetLatestVersion(version int64) {
 }
 
 func (ndb *nodeDB) getPreviousVersion(version int64) (int64, error) {
+	// Get from commit cache.
+	if pre := ndb.commitCache.LastVersion(); pre != 0 {
+		return pre, nil
+	}
+
 	itr, err := ndb.db.ReverseIterator(
 		rootKeyFormat.Key(1),
 		rootKeyFormat.Key(version),
@@ -768,7 +873,7 @@ func (ndb *nodeDB) getFirstVersion() (int64, error) {
 	return 0, nil
 }
 
-// deleteRoot deletes the root entry from disk, but not the node it points to.
+// deleteRoot deletes the dirtyRoots entry from disk, but not the node it points to.
 func (ndb *nodeDB) deleteRoot(version int64, checkLatestVersion bool) error {
 	latestVersion, err := ndb.getLatestVersion()
 	if err != nil {
@@ -779,7 +884,14 @@ func (ndb *nodeDB) deleteRoot(version int64, checkLatestVersion bool) error {
 		return errors.New("tried to delete latest version")
 	}
 
-	return ndb.batch.Delete(ndb.rootKey(version))
+	if err = ndb.batch.Delete(ndb.rootKey(version)); err != nil {
+		return err
+	}
+
+	// Delete in commit cache.
+	ndb.commitCache.DeleteRoot(version)
+
+	return nil
 }
 
 // Traverse orphans and return error if any, nil otherwise
@@ -867,6 +979,8 @@ func (ndb *nodeDB) Commit() error {
 	ndb.mtx.Lock()
 	defer ndb.mtx.Unlock()
 
+	lastVersion := ndb.latestVersion
+
 	var err error
 	if ndb.opts.Sync {
 		err = ndb.batch.WriteSync()
@@ -880,19 +994,37 @@ func (ndb *nodeDB) Commit() error {
 	ndb.batch.Close()
 	ndb.batch = ndb.db.NewBatch()
 
+	ndb.commitCache.Destroy()                  // destroy to release memory
+	ndb.commitCache = newNdbCache(lastVersion) // create new layer
+
 	return nil
 }
 
 func (ndb *nodeDB) HasRoot(version int64) (bool, error) {
+	// Check in commit cache.
+	inDiffLayer := ndb.commitCache.HasRoot(version)
+	if inDiffLayer {
+		return true, nil
+	}
+
 	return ndb.db.Has(ndb.rootKey(version))
 }
 
 func (ndb *nodeDB) getRoot(version int64) ([]byte, error) {
+	// Get from commit cache.
+	if root := ndb.commitCache.GetRoot(version); root != nil {
+		return root, nil
+	}
 	return ndb.db.Get(ndb.rootKey(version))
 }
 
 func (ndb *nodeDB) getRoots() (roots map[int64][]byte, err error) {
-	roots = make(map[int64][]byte)
+	// Get from commit cache.
+	roots = ndb.commitCache.GetRoots()
+	if roots == nil {
+		roots = make(map[int64][]byte)
+	}
+
 	err = ndb.traversePrefix(rootKeyFormat.Key(), func(k, v []byte) error {
 		var version int64
 		rootKeyFormat.Scan(k, &version)
@@ -902,7 +1034,7 @@ func (ndb *nodeDB) getRoots() (roots map[int64][]byte, err error) {
 	return roots, err
 }
 
-// SaveRoot creates an entry on disk for the given root, so that it can be
+// SaveRoot creates an entry on disk for the given dirtyRoots, so that it can be
 // loaded later.
 func (ndb *nodeDB) SaveRoot(root *Node, version int64) error {
 	if len(root.hash) == 0 {
@@ -911,7 +1043,7 @@ func (ndb *nodeDB) SaveRoot(root *Node, version int64) error {
 	return ndb.saveRoot(root.hash, version)
 }
 
-// SaveEmptyRoot creates an entry on disk for an empty root.
+// SaveEmptyRoot creates an entry on disk for an empty dirtyRoots.
 func (ndb *nodeDB) SaveEmptyRoot(version int64) error {
 	return ndb.saveRoot([]byte{}, version)
 }
@@ -930,6 +1062,11 @@ func (ndb *nodeDB) saveRoot(hash []byte, version int64) error {
 	}
 
 	if err := ndb.batch.Set(ndb.rootKey(version), hash); err != nil {
+		return err
+	}
+
+	// Save in commit cache.
+	if err := ndb.commitCache.SaveRoot(version, hash); err != nil {
 		return err
 	}
 
@@ -1098,5 +1235,5 @@ func (ndb *nodeDB) String() (string, error) {
 var (
 	ErrNodeMissingHash      = fmt.Errorf("node does not have a hash")
 	ErrNodeAlreadyPersisted = fmt.Errorf("shouldn't be calling save on an already persisted node")
-	ErrRootMissingHash      = fmt.Errorf("root hash must not be empty")
+	ErrRootMissingHash      = fmt.Errorf("dirtyRoots hash must not be empty")
 )

@@ -857,7 +857,7 @@ func (tree *MutableTree) GetVersioned(key []byte, version int64) ([]byte, error)
 
 // SaveVersion saves a new tree version to disk, based on the current state of
 // the tree. Returns the hash and new version number.
-func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
+func (tree *MutableTree) SaveVersion(flush bool) ([]byte, int64, error) {
 	version := tree.version + 1
 	if version == 1 && tree.ndb.opts.InitialVersion > 0 {
 		version = int64(tree.ndb.opts.InitialVersion)
@@ -922,8 +922,10 @@ func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
 		}
 	}
 
-	if err := tree.ndb.Commit(); err != nil {
-		return nil, version, err
+	if flush {
+		if err := tree.ndb.Commit(); err != nil {
+			return nil, version, err
+		}
 	}
 
 	tree.mtx.Lock()

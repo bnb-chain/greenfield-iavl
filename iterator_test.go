@@ -172,12 +172,12 @@ func TestIterator_WithDelete_Full_Ascending_Success(t *testing.T) {
 
 	tree, mirror := getRandomizedTreeAndMirror(t)
 
-	_, _, err := tree.SaveVersion()
+	_, _, err := tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	randomizeTreeAndMirror(t, tree, mirror)
 
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	err = tree.DeleteVersion(1)
@@ -252,7 +252,7 @@ func setupIteratorAndMirror(t *testing.T, config *iteratorTestConfig) (dbm.Itera
 	require.NoError(t, err)
 
 	mirror := setupMirrorForIterator(t, config, tree)
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	latestVersion, err := tree.ndb.getLatestVersion()
@@ -269,7 +269,7 @@ func setupFastIteratorAndMirror(t *testing.T, config *iteratorTestConfig) (dbm.I
 	require.NoError(t, err)
 
 	mirror := setupMirrorForIterator(t, config, tree)
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	itr := NewFastIterator(config.startIterate, config.endIterate, config.ascending, tree.ndb)
@@ -293,7 +293,7 @@ func setupUnsavedFastIterator(t *testing.T, config *iteratorTestConfig) (dbm.Ite
 
 	// First half of the mirror
 	mirror := setupMirrorForIterator(t, &firstHalfConfig, tree)
-	_, _, err = tree.SaveVersion()
+	_, _, err = tree.SaveVersion(true)
 	require.NoError(t, err)
 
 	// No unsaved additions or removals should be present after saving
