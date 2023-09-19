@@ -770,7 +770,6 @@ func (tree *MutableTree) enableFastStorageAndCommit() error {
 // GetImmutable loads an ImmutableTree at a given version for querying. The returned tree is
 // safe for concurrent access, provided the version is not deleted, e.g. via `DeleteVersion()`.
 func (tree *MutableTree) GetImmutable(version int64) (*ImmutableTree, error) {
-	// TODO: roothash is nil
 	rootHash, err := tree.ndb.getRoot(version)
 	if err != nil {
 		return nil, err

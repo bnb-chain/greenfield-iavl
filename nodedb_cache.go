@@ -175,7 +175,9 @@ func (l *nodedbCache) DeleteOrphan(orphanKey []byte) {
 }
 
 // TODO: debug purpose, to be removed
+// nolint: govet,revive
 func trace() {
+	return
 	pc := make([]uintptr, 10) // at least 1 entry needed
 	runtime.Callers(2, pc)
 	f := runtime.FuncForPC(pc[0])
